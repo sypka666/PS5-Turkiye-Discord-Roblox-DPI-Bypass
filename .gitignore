@@ -1,0 +1,16 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# PyInstaller build artifacts (keep final exe or upload via GitHub Releases)
+build/
+*.spec
+
+# User local runtime config
+config.json
