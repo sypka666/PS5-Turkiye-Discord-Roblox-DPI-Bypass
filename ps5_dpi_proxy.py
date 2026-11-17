@@ -8,8 +8,40 @@ import os
 import sys
 import datetime
 import subprocess
+import webbrowser
+import ctypes
 import tkinter as tk
 from tkinter import ttk, scrolledtext, font as tkfont, messagebox
+
+# Windows Yüksek DPI (Ölçekleme) Desteği
+try:
+    ctypes.windll.shcore.SetProcessDpiAwareness(1)
+except Exception:
+    try:
+        ctypes.windll.user32.SetProcessDPIAware()
+    except Exception:
+        pass
+
+# ---------------------------------------------------------------------------
+# Sürüm ve GitHub Otomatik Güncelleme Sabitleri
+# ---------------------------------------------------------------------------
+APP_VERSION = "v1.0.0"
+GITHUB_REPO = "sypka666/PS5-Turkiye-Discord-Roblox-DPI-Bypass"
+GITHUB_API_LATEST = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+GITHUB_RELEASES_URL = f"https://github.com/{GITHUB_REPO}/releases"
+
+
+def parse_version_tuple(v_str: str) -> tuple:
+    """'v1.2.3' gibi sürüm metinlerini karşılaştırılabilir (1, 2, 3) tuple'ına çevirir."""
+    clean = v_str.strip().lstrip("vV").split("-")[0]
+    parts = []
+    for p in clean.split("."):
+        try:
+            parts.append(int(p))
+        except ValueError:
+            parts.append(0)
+    return tuple(parts)
+
 
 # ---------------------------------------------------------------------------
 # Ayarlar (Config) Yöneticisi
@@ -326,8 +358,11 @@ class PS5DPIProxyServer:
 
                 self.total_requests += 1
                 self._notify_stats()
-                if "discord" in host.lower() or "gateway" in host.lower():
+                low_host = host.lower()
+                if "discord" in low_host or "gateway" in low_host:
                     self.log(f"[DISCORD] {host}:{port} -> {target_ip} (TLS Split={self.split_pos})")
+                elif "roblox" in low_host or "rbxcdn" in low_host:
+                    self.log(f"[ROBLOX]  {host}:{port} -> {target_ip} (TLS Split={self.split_pos})")
                 else:
                     self.log(f"[TÜNEL]   {host}:{port} -> {target_ip}")
 
@@ -441,9 +476,16 @@ class PS5DPIProxyServer:
 class AppGUI:
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("PS5 Discord DPI Bypass Proxy")
-        self.root.geometry("760x635")
-        self.root.minsize(720, 595)
+        self.root.title("PS5 Discord & Roblox DPI Bypass Proxy")
+
+        # Ekranın ortasında geniş ve ferah bir çözünürlükle başlat (1020x720)
+        win_w, win_h = 1020, 720
+        scr_w = self.root.winfo_screenwidth()
+        scr_h = self.root.winfo_screenheight()
+        pos_x = max(0, (scr_w - win_w) // 2)
+        pos_y = max(0, (scr_h - win_h) // 2 - 20)
+        self.root.geometry(f"{win_w}x{win_h}+{pos_x}+{pos_y}")
+        self.root.minsize(920, 650)
 
         # Uygulama simgesini (app_icon.ico) yükle
         try:
@@ -478,20 +520,62 @@ class AppGUI:
         if self.cfg.get("auto_start", True):
             self.root.after(350, self.start_server)
 
+        # Açılışta arka planda sessizce yeni GitHub sürümü var mı kontrol et
+        self.root.after(1500, lambda: self.check_for_updates(silent=True))
+
     def get_theme(self) -> dict:
         t_name = self.cfg.get("theme", "Obsidian Black")
         return THEMES.get(t_name, THEMES["Obsidian Black"])
 
     def _build_ui(self):
         # Üst Navigasyon Barı (Header)
-        self.header_frame = tk.Frame(self.root, pady=12, padx=18)
+        self.header_frame = tk.Frame(self.root, pady=14, padx=22)
         self.header_frame.pack(fill="x")
 
+        # Sağ Üst Menü Butonları (Önce pack ediliyor ki pencere daralsa bile asla kesilmesin!)
+        nav_box = tk.Frame(self.header_frame)
+        nav_box.pack(side="right", anchor="center")
+        self.nav_box = nav_box
+
+        self.btn_tab_main = tk.Button(
+            nav_box,
+            text="📡 Ana Ekran",
+            relief="flat",
+            padx=14,
+            pady=7,
+            cursor="hand2",
+            command=lambda: self.switch_tab("dashboard"),
+        )
+        self.btn_tab_main.pack(side="left", padx=(0, 8))
+
+        self.btn_tab_settings = tk.Button(
+            nav_box,
+            text="⚙ Ayarlar & Görünüm",
+            relief="flat",
+            padx=14,
+            pady=7,
+            cursor="hand2",
+            command=lambda: self.switch_tab("settings"),
+        )
+        self.btn_tab_settings.pack(side="left", padx=(0, 8))
+
+        self.btn_check_update = tk.Button(
+            nav_box,
+            text="🔄 Güncellemeleri Kontrol Et",
+            relief="flat",
+            padx=14,
+            pady=7,
+            cursor="hand2",
+            command=lambda: self.check_for_updates(silent=False),
+        )
+        self.btn_check_update.pack(side="left")
+
+        # Sol Başlık Alanı
         title_box = tk.Frame(self.header_frame)
-        title_box.pack(side="left")
+        title_box.pack(side="left", fill="x", expand=True)
         self.title_box = title_box
 
-        self.lbl_title = tk.Label(title_box, text="PS5 DISCORD DPI BYPASS", anchor="w")
+        self.lbl_title = tk.Label(title_box, text=f"PS5 DISCORD & ROBLOX DPI BYPASS  ({APP_VERSION})", anchor="w")
         self.lbl_title.pack(anchor="w")
 
         self.lbl_subtitle = tk.Label(
@@ -500,33 +584,6 @@ class AppGUI:
             anchor="w",
         )
         self.lbl_subtitle.pack(anchor="w")
-
-        # Sağ Üst Menü Butonları (Ana Ekran / Ayarlar)
-        nav_box = tk.Frame(self.header_frame)
-        nav_box.pack(side="right")
-        self.nav_box = nav_box
-
-        self.btn_tab_main = tk.Button(
-            nav_box,
-            text="📡 Ana Ekran",
-            relief="flat",
-            padx=14,
-            pady=6,
-            cursor="hand2",
-            command=lambda: self.switch_tab("dashboard"),
-        )
-        self.btn_tab_main.pack(side="left", padx=(0, 6))
-
-        self.btn_tab_settings = tk.Button(
-            nav_box,
-            text="⚙ Ayarlar & Görünüm",
-            relief="flat",
-            padx=14,
-            pady=6,
-            cursor="hand2",
-            command=lambda: self.switch_tab("settings"),
-        )
-        self.btn_tab_settings.pack(side="left")
 
         # İnce Ayırıcı Çizgi
         self.sep_line = tk.Frame(self.root, height=1)
@@ -1003,6 +1060,7 @@ class AppGUI:
             self.btn_comic,
             self.btn_segoe,
             self.btn_consolas,
+            self.btn_check_update,
         ]:
             btn.configure(
                 font=f_norm,
@@ -1181,6 +1239,113 @@ class AppGUI:
             self.append_log(f"[GÜVENLİK DUVARI] TCP {port} portu için izin kuralı eklendi.")
         except Exception as e:
             self.append_log(f"[GÜVENLİK DUVARI] İşlem iptal edildi veya hata oluştu: {e}")
+
+    # -----------------------------------------------------------------------
+    # GITHUB OTOMATİK GÜNCELLEYİCİ (AUTO-UPDATER)
+    # -----------------------------------------------------------------------
+    def check_for_updates(self, silent: bool = True):
+        def _worker():
+            if not silent:
+                self.append_log(f"[GÜNCELLEME] GitHub üzerinden yeni sürüm kontrol ediliyor ({GITHUB_REPO})...")
+            try:
+                req = urllib.request.Request(
+                    GITHUB_API_LATEST,
+                    headers={"User-Agent": "PS5-DPI-Bypass-Updater", "Accept": "application/vnd.github.v3+json"},
+                )
+                with urllib.request.urlopen(req, timeout=8) as resp:
+                    data = json.loads(resp.read().decode("utf-8", errors="ignore"))
+
+                latest_tag = data.get("tag_name", "").strip()
+                release_notes = data.get("body", "") or "Yeni iyileştirmeler ve hata düzeltmeleri."
+                assets = data.get("assets", [])
+
+                if not latest_tag:
+                    if not silent:
+                        self.append_log("[GÜNCELLEME] Henüz yayınlanmış bir sürüm bulunamadı.")
+                    return
+
+                if parse_version_tuple(latest_tag) > parse_version_tuple(APP_VERSION):
+                    exe_url = None
+                    for asset in assets:
+                        name = asset.get("name", "")
+                        if name.lower().endswith(".exe"):
+                            exe_url = asset.get("browser_download_url")
+                            break
+
+                    self.append_log(f"[GÜNCELLEME] Yeni sürüm bulundu: {latest_tag} (Mevcut: {APP_VERSION})")
+                    self.root.after(0, lambda: self._prompt_update(latest_tag, release_notes, exe_url))
+                else:
+                    if not silent:
+                        self.append_log(f"[GÜNCELLEME] Uygulamanız güncel! ({APP_VERSION})")
+                        self.root.after(
+                            0,
+                            lambda: messagebox.showinfo(
+                                "Güncel", f"En güncel sürümü ({APP_VERSION}) kullanıyorsunuz."
+                            ),
+                        )
+            except Exception as e:
+                if not silent:
+                    self.append_log(f"[GÜNCELLEME] Kontrol sırasında hata: {e}")
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _prompt_update(self, latest_tag: str, notes: str, exe_url: str | None):
+        short_notes = notes[:350] + ("..." if len(notes) > 350 else "")
+        msg = (
+            f"Yeni bir güncelleme mevcut: {latest_tag}  (Mevcut: {APP_VERSION})\n\n"
+            f"Sürüm Notları:\n{short_notes}\n\n"
+            "Şimdi otomatik olarak indirilip güncellensin mi?"
+        )
+        if messagebox.askyesno("Yeni Güncelleme Mevcut!", msg):
+            if exe_url and getattr(sys, "frozen", False):
+                self._download_and_replace_exe(exe_url, latest_tag)
+            else:
+                webbrowser.open(GITHUB_RELEASES_URL)
+
+    def _download_and_replace_exe(self, exe_url: str, latest_tag: str):
+        self.append_log(f"[GÜNCELLEME] {latest_tag} indiriliyor, lütfen bekleyin...")
+        self.btn_check_update.configure(text="⏳ İndiriliyor...", state="disabled")
+
+        def _dl_worker():
+            try:
+                current_exe = os.path.abspath(sys.executable)
+                base_dir = os.path.dirname(current_exe)
+                new_exe = os.path.join(base_dir, "PS5-DPI-Bypass_new.exe")
+                bat_path = os.path.join(base_dir, "_update_runner.bat")
+
+                req = urllib.request.Request(exe_url, headers={"User-Agent": "PS5-DPI-Bypass-Updater"})
+                with urllib.request.urlopen(req, timeout=60) as resp, open(new_exe, "wb") as out_f:
+                    while True:
+                        chunk = resp.read(65536)
+                        if not chunk:
+                            break
+                        out_f.write(chunk)
+
+                # Eski .exe kapandıktan 2 saniye sonra yenisini üzerine yazıp tekrar başlatan script
+                bat_content = (
+                    "@echo off\r\n"
+                    "chcp 65001 >nul\r\n"
+                    "timeout /t 2 /nobreak >nul\r\n"
+                    f'move /Y "{new_exe}" "{current_exe}" >nul\r\n'
+                    f'start "" "{current_exe}"\r\n'
+                    'del "%~f0"\r\n'
+                )
+                with open(bat_path, "w", encoding="utf-8") as bf:
+                    bf.write(bat_content)
+
+                self.append_log("[GÜNCELLEME] İndirme tamamlandı! Uygulama yeniden başlatılıyor...")
+                subprocess.Popen(
+                    ["cmd.exe", "/c", bat_path],
+                    creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0,
+                )
+                self.root.after(400, self.root.destroy)
+            except Exception as e:
+                self.append_log(f"[GÜNCELLEME HATASI] Otomatik güncelleme başarısız: {e}")
+                self.root.after(
+                    0, lambda: self.btn_check_update.configure(text="🔄 Güncellemeleri Kontrol Et", state="normal")
+                )
+
+        threading.Thread(target=_dl_worker, daemon=True).start()
 
 
 if __name__ == "__main__":
